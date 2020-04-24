@@ -1,8 +1,9 @@
 #[macro_use]
 extern crate vst;
 extern crate rand;
+extern crate lerp;
 
-
+use lerp::Lerp;
 use vst::plugin::{Info, Plugin, Category};
 use vst::buffer::AudioBuffer;
 use rand::random;
@@ -19,7 +20,8 @@ struct Whisper {
     sample_rate: f32,
     time: f64,
     note_duration: f64,
-    decay_time: f64
+    decay_time: f64,
+    alpha: f64
 }
 
 impl Default for Whisper {
@@ -30,7 +32,8 @@ impl Default for Whisper {
             sample_rate: 44100.0,
             time: 0.0,
             note_duration: 0.0,
-            decay_time: 0.0
+            decay_time: 0.0,
+            alpha: 0.0
         }
     }
 }
@@ -93,18 +96,22 @@ impl Plugin for Whisper {
             let time = self.time;
 
             if self.notes != 0 || self.decay_time > 0.0 {
-                let signal = (time * midi_pitch_to_freq(self.note) * TAU).sin();
+                let sin =  (time * midi_pitch_to_freq(self.note) * TAU).sin();
+                let noise = random::<f64>() - 0.5;
+                let signal = sin + noise;
 
-                let attack = 0.5;
-                let alpha = if self.note_duration < attack {
-                    self.note_duration / attack
-                } else if self.notes == 0 {
-                    self.decay_time
+
+
+
+
+                if self.notes > 0 {
+                    self.alpha = self.alpha.lerp(1.0, 0.000125)
                 } else {
-                    1.0
-                };
+                    self.alpha = self.alpha.lerp(0.0, 0.000125)
+                }
 
-                output_sample = (signal * alpha) as f32;
+
+                output_sample = (signal * self.alpha) as f32;
 
                 self.time += per_sample;
                 self.note_duration += per_sample;

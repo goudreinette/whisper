@@ -95,13 +95,10 @@ impl Plugin for Whisper {
         for sample_idx in 0..samples {
             let time = self.time;
 
-            if self.notes != 0 || self.decay_time > 0.0 {
+            if self.notes != 0 {
                 let sin =  (time * midi_pitch_to_freq(self.note) * TAU).sin();
                 let noise = random::<f64>() - 0.5;
                 let signal = sin + noise;
-
-
-
 
 
                 if self.notes > 0 {
@@ -110,17 +107,11 @@ impl Plugin for Whisper {
                     self.alpha = self.alpha.lerp(0.0, 0.000125)
                 }
 
-
                 output_sample = (signal * self.alpha) as f32;
 
                 self.time += per_sample;
-                self.note_duration += per_sample;
             } else {
                 output_sample = 0.0;
-            }
-
-            if self.notes == 0 && self.decay_time > 0.0 {
-                self.decay_time -= per_sample;
             }
 
             for buf_idx in 0..output_count {

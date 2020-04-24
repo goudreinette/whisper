@@ -2,3 +2,4 @@
 **/*.rs.bk
 Whisper.vst/
 .idea/
+.DS_Store

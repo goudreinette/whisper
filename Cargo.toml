@@ -10,6 +10,7 @@ edition = "2018"
 vst = "0.0.1"
 rand = "0.3"
 lerp = "0.2.0"
+noise = "0.6.0"
 
 [lib]
 name = "whisper"

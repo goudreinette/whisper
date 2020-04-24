@@ -2,6 +2,7 @@
 extern crate vst;
 extern crate rand;
 extern crate lerp;
+extern crate noise;
 
 use lerp::Lerp;
 use vst::plugin::{Info, Plugin, Category};
@@ -10,6 +11,8 @@ use rand::random;
 use vst::api::Events;
 use vst::event::Event;
 use std::f64::consts::PI;
+use noise::{NoiseFn, Perlin};
+
 
 const TAU: f64 = PI * 2.0;
 
@@ -21,7 +24,8 @@ struct Whisper {
     time: f64,
     note_duration: f64,
     decay_time: f64,
-    alpha: f64
+    alpha: f64,
+    perlin: Perlin
 }
 
 impl Default for Whisper {
@@ -33,7 +37,8 @@ impl Default for Whisper {
             time: 0.0,
             note_duration: 0.0,
             decay_time: 0.0,
-            alpha: 0.0
+            alpha: 0.0,
+            perlin: Perlin::new()
         }
     }
 }
@@ -61,17 +66,14 @@ impl Plugin for Whisper {
                     match ev.data[0] {
                         144 => {
                             self.notes += 1;
-                            self.note_duration = 0.0;
-
+                            self.note = ev.data[1];
                         },
                         128 => {
                             self.notes -= 1;
-                            self.decay_time = 1.0
                         },
                         _ => ()
                     }
 
-                    self.note = ev.data[1];
                 }
 
                 _ => ()
@@ -95,17 +97,18 @@ impl Plugin for Whisper {
         for sample_idx in 0..samples {
             let time = self.time;
 
-            if self.notes != 0 {
+
+            if self.notes > 0 {
+                self.alpha = lerp(self.alpha, 1.0, 0.000125)
+            } else {
+                self.alpha = lerp(self.alpha, 0.0, 0.000125)
+            }
+
+
+            if self.notes != 0 || self.alpha > 0.0001 {
                 let sin =  (time * midi_pitch_to_freq(self.note) * TAU).sin();
-                let noise = random::<f64>() - 0.5;
-                let signal = sin + noise;
-
-
-                if self.notes > 0 {
-                    self.alpha = self.alpha.lerp(1.0, 0.000125)
-                } else {
-                    self.alpha = self.alpha.lerp(0.0, 0.000125)
-                }
+                let noise =  random::<f64>() - 0.5;
+                let signal = sin + self.perlin.get([0.0, time * midi_pitch_to_freq(self.note)]);
 
                 output_sample = (signal * self.alpha) as f32;
 
@@ -133,4 +136,8 @@ fn midi_pitch_to_freq(pitch: u8) -> f64 {
 
     // Midi notes can be 0-127
     ((f64::from(pitch as i8 - A4_PITCH)) / 12.).exp2() * A4_FREQ
+}
+
+fn lerp(a: f64, b: f64, f: f64) -> f64 {
+    a + f * (b - a)
 }

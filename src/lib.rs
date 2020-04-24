@@ -28,6 +28,7 @@ struct Whisper {
     alpha: f64,
 
     // Amounts
+    a_white_noise: f32,
     a_perlin: f32,
     a_value: f32,
     a_worley: f32,
@@ -47,8 +48,7 @@ struct Whisper {
     fn_billow: Billow,
     fn_cylinders: Cylinders,
     fn_hybrid_multi: HybridMulti,
-    fn_basic_multi: BasicMulti
-
+    fn_basic_multi: BasicMulti,
 }
 
 
@@ -64,7 +64,8 @@ impl Default for Whisper {
             alpha: 0.0,
 
             // Amounts
-            a_perlin: 100.0,
+            a_white_noise: 1.0,
+            a_perlin: 0.0,
             a_value: 0.0,
             a_worley: 0.0,
             a_ridged_multi: 0.0,
@@ -83,7 +84,7 @@ impl Default for Whisper {
             fn_billow: Billow::new(),
             fn_cylinders: Cylinders::new(),
             fn_hybrid_multi: HybridMulti::new(),
-            fn_basic_multi: BasicMulti::new()
+            fn_basic_multi: BasicMulti::new(),
         }
     }
 }
@@ -92,46 +93,64 @@ impl Default for Whisper {
 impl Plugin for Whisper {
     fn get_parameter(&self, index: i32) -> f32 {
         match index {
-            0 => self.size,
-            1 => self.dry_wet,
+            0 => self.a_white_noise,
+            1 => self.a_perlin,
+            2 => self.a_value,
+            3 => self.a_worley,
+            4 => self.a_ridged_multi,
+            5 => self.a_open_simplex,
+            6 => self.a_billow,
+            7 => self.a_cylinders,
+            8 => self.a_hybrid_multi,
+            9 => self.a_basic_multi,
             _ => 0.0,
         }
     }
 
     fn get_parameter_text(&self, index: i32) -> String {
         match index {
-            0 => format!("{}", (self.size * 1000.0) as isize),
-            1 => format!("{:.1}%", self.dry_wet * 100.0),
-            2 => format!("{:.1}%", self.dry_wet * 100.0),
-            3 => format!("{:.1}%", self.dry_wet * 100.0),
-            4 => format!("{:.1}%", self.dry_wet * 100.0),
-            5 => format!("{:.1}%", self.dry_wet * 100.0),
-            6 => format!("{:.1}%", self.dry_wet * 100.0),
-            7 => format!("{:.1}%", self.dry_wet * 100.0),
-            8 => format!("{:.1}%", self.dry_wet * 100.0),
+            0 => format!("{:.1}%", self.a_white_noise * 100.0),
+            1 => format!("{:.1}%", self.a_perlin * 100.0),
+            2 => format!("{:.1}%", self.a_value * 100.0),
+            3 => format!("{:.1}%", self.a_worley * 100.0),
+            4 => format!("{:.1}%", self.a_ridged_multi * 100.0),
+            5 => format!("{:.1}%", self.a_open_simplex * 100.0),
+            6 => format!("{:.1}%", self.a_billow * 100.0),
+            7 => format!("{:.1}%", self.a_cylinders * 100.0),
+            8 => format!("{:.1}%", self.a_hybrid_multi * 100.0),
+            9 => format!("{:.1}%", self.a_basic_multi * 100.0),
             _ => "".to_string(),
         }
     }
 
     fn get_parameter_name(&self, index: i32) -> String {
         match index {
-            0 => "Perlin",
-            1 => "Value",
-            2 => "Worley",
-            3 => "RidgedMulti",
-            4 => "OpenSimplex",
-            5 => "Billow",
-            6 => "Cylinders",
-            7 => "HybridMulti",
-            8 => "BasicMulti",
+            0 => "White",
+            1 => "Perlin",
+            2 => "Value",
+            3 => "Worley",
+            4 => "RidgedMulti",
+            5 => "OpenSimplex",
+            6 => "Billow",
+            7 => "Cylinders",
+            8 => "HybridMulti",
+            9 => "BasicMulti",
             _ => "",
         }.to_string()
     }
 
     fn set_parameter(&mut self, index: i32, val: f32) {
         match index {
-            0 => self.size = val,
-            1 => self.dry_wet = val,
+            0 => self.a_white_noise = val,
+            1 => self.a_perlin = val,
+            2 => self.a_value = val,
+            3 => self.a_worley = val,
+            4 => self.a_ridged_multi = val,
+            5 => self.a_open_simplex = val,
+            6 => self.a_billow = val,
+            7 => self.a_cylinders = val,
+            8 => self.a_hybrid_multi = val,
+            9 => self.a_basic_multi = val,
             _ => (),
         }
     }
@@ -143,14 +162,13 @@ impl Plugin for Whisper {
 
             inputs: 0,
             outputs: 2,
-            parameters: 2,
+            parameters: 10,
 
             category: Category::Synth,
 
             ..Default::default()
         }
     }
-
 
 
     fn process_events(&mut self, events: &Events) {
@@ -161,13 +179,12 @@ impl Plugin for Whisper {
                         144 => {
                             self.notes += 1;
                             self.note = ev.data[1];
-                        },
+                        }
                         128 => {
                             self.notes -= 1;
-                        },
+                        }
                         _ => ()
                     }
-
                 }
 
                 _ => ()
@@ -199,10 +216,9 @@ impl Plugin for Whisper {
 
 
             if self.notes != 0 || self.alpha > 0.0001 {
-                let sin =  (time * midi_pitch_to_freq(self.note) * TAU).sin();
-                let noise =  random::<f64>() - 0.5;
+                let sin = (time * midi_pitch_to_freq(self.note) * TAU).sin();
 
-                let signal = self.perlin.get([0.0, time * midi_pitch_to_freq(self.note)]);
+                let signal = self.combined_noises();
 
                 output_sample = (signal * self.alpha) as f32;
 
@@ -218,6 +234,27 @@ impl Plugin for Whisper {
         }
     }
 }
+
+impl Whisper {
+    fn combined_noises(&self) -> f64 {
+        let point = [0.0, self.time * midi_pitch_to_freq(self.note)];
+        let mut signal = 0.0;
+
+        signal += ((random::<f64>() - 0.5) * 2.0) * self.a_white_noise as f64;
+        signal += self.fn_perlin.get(point) * self.a_perlin as f64;
+        signal += self.fn_value.get(point) * self.a_value as f64;
+        signal += self.fn_worley.get(point) * self.a_worley as f64;
+        signal += self.fn_ridged_multi.get(point) * self.a_ridged_multi as f64;
+        signal += self.fn_open_simplex.get(point) * self.a_open_simplex as f64;
+        signal += self.fn_billow.get(point) * self.a_billow as f64;
+        signal += self.fn_cylinders.get(point) * self.a_cylinders as f64;
+        signal += self.fn_hybrid_multi.get(point) * self.a_hybrid_multi as f64;
+        signal += self.fn_basic_multi.get(point) * self.a_basic_multi as f64;
+
+        signal
+    }
+}
+
 
 plugin_main!(Whisper);
 

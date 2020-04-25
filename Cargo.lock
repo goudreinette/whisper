@@ -461,6 +461,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "vst"
 version = "0.2.0"
+dependencies = [
+ "bitflags 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libc 0.2.69 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libloading 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "num-traits 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "vst"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "bitflags 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -501,7 +512,7 @@ dependencies = [
  "lerp 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "noise 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.3.23 (registry+https://github.com/rust-lang/crates.io-index)",
- "vst 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "vst 0.2.0",
  "vst-gui 0.2.0 (git+https://github.com/mikesoylu/rust-vst-gui)",
 ]
 

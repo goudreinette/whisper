@@ -25,7 +25,7 @@ const TAU: f64 = PI * 2.0;
 
 const HTML: &'static str = include_str!("./ui.html");
 
-static mut LAST_SAMPLE : f64 = 0.0;
+static mut LAST_SAMPLE: f64 = 0.0;
 
 #[derive(Debug, Copy, Clone)]
 struct Note {
@@ -53,8 +53,7 @@ struct Whisper {
     fn_basic_multi: BasicMulti,
 
     params: Arc<WhisperParameters>,
-
-    last_sample: f32,
+    gui: Arc<Mutex<PluginGui>>,
 }
 
 
@@ -194,7 +193,12 @@ impl Default for Whisper {
             fn_hybrid_multi: HybridMulti::new(),
             fn_basic_multi: BasicMulti::new(),
 
-            last_sample: 0.0,
+            gui: Arc::new(Mutex::new(vst_gui::new_plugin_gui(
+                String::from(HTML),
+                Box::new(move |message: String| {
+                    String::new()
+                }),
+                Some((480, 320))))),
         }
     }
 }
@@ -332,11 +336,6 @@ impl Plugin for Whisper {
                 output_sample = 0.0;
             }
 
-            unsafe {
-                LAST_SAMPLE = output_sample as f64;
-            }
-
-
             for buf_idx in 0..output_count {
                 let buff = outputs.get_mut(buf_idx);
                 buff[sample_idx] = output_sample;
@@ -348,32 +347,8 @@ impl Plugin for Whisper {
         Arc::clone(&self.params) as Arc<dyn PluginParameters>
     }
 
-    fn get_editor(&mut self) -> Option<Box<dyn Editor>> {
-        let gui = vst_gui::new_plugin_gui(
-            String::from(HTML),
-            Box::new(move |message: String| {
-                let mut tokens = message.split_whitespace();
-
-                let command = tokens.next().unwrap_or("");
-                let argument = tokens.next().unwrap_or("").parse::<f32>();
-
-                let mut result = String::new();
-
-                unsafe {
-                    match command {
-                        "getLast" => {
-                            result = LAST_SAMPLE.to_string();
-                        }
-                        _ => {}
-                    }
-                }
-
-                result
-            }),
-            Some((480, 320)));
-
-
-        Some(Box::new(gui))
+    fn get_editor(&mut self) -> Option<Arc<Mutex<dyn Editor>>> {
+        Some(self.gui.clone())
     }
 }
 

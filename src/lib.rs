@@ -62,8 +62,8 @@ impl Default for Whisper {
             time: 0.0,
             alpha: 0.0,
 
-            attack_duration: 1.0,
-            release_duration: 1.0,
+            attack_duration: 0.5,
+            release_duration: 0.5,
 
             // Amounts
             a_white_noise: 1.0,
@@ -106,6 +106,7 @@ impl Plugin for Whisper {
             8 => self.a_hybrid_multi,
             9 => self.a_basic_multi,
             10 => self.attack_duration,
+            11 => self.release_duration,
             _ => 0.0,
         }
     }
@@ -158,8 +159,8 @@ impl Plugin for Whisper {
             7 => self.a_cylinders = val,
             8 => self.a_hybrid_multi = val,
             9 => self.a_basic_multi = val,
-            10 => self.attack_duration = val,
-            11 => self.release_duration = val,
+            10 => self.attack_duration = val.max(0.001), // prevent division by zero
+            11 => self.release_duration = val.max(0.001),
             _ => (),
         }
     }
@@ -218,11 +219,11 @@ impl Plugin for Whisper {
 
 
             if self.notes > 0 && self.alpha < 1.0 {
-                self.alpha += per_sample * self.attack_duration as f64
+                self.alpha += per_sample * (1.0 / self.attack_duration as f64)
             }
 
             if self.notes == 0 && self.alpha > 0.0 {
-                self.alpha += per_sample * self.release_duration as f64
+                self.alpha -= per_sample * (1.0 / self.release_duration as f64)
             }
 
 

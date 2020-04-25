@@ -3,17 +3,29 @@ extern crate vst;
 extern crate rand;
 extern crate lerp;
 extern crate noise;
+extern crate vst_gui;
 
-use vst::plugin::{Info, Plugin, Category};
+
+use vst::plugin::{Info, Plugin, Category, PluginParameters};
 use vst::buffer::AudioBuffer;
 use rand::random;
 use vst::api::Events;
 use vst::event::Event;
 use std::f64::consts::PI;
 use noise::{NoiseFn, Perlin, Worley, Point2, Billow, Cylinders, OpenSimplex, RidgedMulti, SuperSimplex, Value, HybridMulti, BasicMulti};
+use vst::editor::Editor;
+use std::sync::{Arc, Mutex, MutexGuard};
+use vst_gui::{JavascriptCallback, PluginGui};
+use vst::util::AtomicFloat;
+use std::ops::Deref;
+use std::rc::Rc;
 
 
 const TAU: f64 = PI * 2.0;
+
+const HTML: &'static str = include_str!("./ui.html");
+
+static mut LAST_SAMPLE : f64 = 0.0;
 
 #[derive(Debug, Copy, Clone)]
 struct Note {
@@ -29,21 +41,6 @@ struct Whisper {
     sample_rate: f32,
     time: f64,
 
-    attack_duration: f32,
-    release_duration: f32,
-
-    // Amounts
-    a_white_noise: f32,
-    a_perlin: f32,
-    a_value: f32,
-    a_worley: f32,
-    a_ridged_multi: f32,
-    a_open_simplex: f32,
-    a_billow: f32,
-    a_cylinders: f32,
-    a_hybrid_multi: f32,
-    a_basic_multi: f32,
-
     // Noise functions
     fn_perlin: Perlin,
     fn_value: Value,
@@ -54,79 +51,68 @@ struct Whisper {
     fn_cylinders: Cylinders,
     fn_hybrid_multi: HybridMulti,
     fn_basic_multi: BasicMulti,
+
+    params: Arc<WhisperParameters>,
+
+    last_sample: f32,
 }
 
 
-impl Default for Whisper {
-    fn default() -> Whisper {
-        Whisper {
-            notes: vec![],
-            sample_rate: 44100.0,
-            time: 0.0,
+/*
+|--------------------------------------------------------------------------
+| Parameters
+|--------------------------------------------------------------------------
+*/
+struct WhisperParameters {
+    // Amounts
+    a_white_noise: AtomicFloat,
+    a_perlin: AtomicFloat,
+    a_value: AtomicFloat,
+    a_worley: AtomicFloat,
+    a_ridged_multi: AtomicFloat,
+    a_open_simplex: AtomicFloat,
+    a_billow: AtomicFloat,
+    a_cylinders: AtomicFloat,
+    a_hybrid_multi: AtomicFloat,
+    a_basic_multi: AtomicFloat,
 
-            attack_duration: 0.5,
-            release_duration: 0.5,
-
-            // Amounts
-            a_white_noise: 1.0,
-            a_perlin: 0.0,
-            a_value: 0.0,
-            a_worley: 0.0,
-            a_ridged_multi: 0.0,
-            a_open_simplex: 0.0,
-            a_billow: 0.0,
-            a_cylinders: 0.0,
-            a_hybrid_multi: 0.0,
-            a_basic_multi: 0.0,
-
-            // Noise functions
-            fn_perlin: Perlin::new(),
-            fn_value: Value::new(),
-            fn_worley: Worley::new(),
-            fn_ridged_multi: RidgedMulti::new(),
-            fn_open_simplex: OpenSimplex::new(),
-            fn_billow: Billow::new(),
-            fn_cylinders: Cylinders::new(),
-            fn_hybrid_multi: HybridMulti::new(),
-            fn_basic_multi: BasicMulti::new(),
-        }
-    }
+    attack_duration: AtomicFloat,
+    release_duration: AtomicFloat,
 }
 
-
-impl Plugin for Whisper {
+impl PluginParameters for WhisperParameters {
     fn get_parameter(&self, index: i32) -> f32 {
         match index {
-            0 => self.a_white_noise,
-            1 => self.a_perlin,
-            2 => self.a_value,
-            3 => self.a_worley,
-            4 => self.a_ridged_multi,
-            5 => self.a_open_simplex,
-            6 => self.a_billow,
-            7 => self.a_cylinders,
-            8 => self.a_hybrid_multi,
-            9 => self.a_basic_multi,
-            10 => self.attack_duration,
-            11 => self.release_duration,
+            0 => self.a_white_noise.get(),
+            1 => self.a_perlin.get(),
+            2 => self.a_value.get(),
+            3 => self.a_worley.get(),
+            4 => self.a_ridged_multi.get(),
+            5 => self.a_open_simplex.get(),
+            6 => self.a_billow.get(),
+            7 => self.a_cylinders.get(),
+            8 => self.a_hybrid_multi.get(),
+            9 => self.a_basic_multi.get(),
+            10 => self.attack_duration.get(),
+            11 => self.release_duration.get(),
             _ => 0.0,
         }
     }
 
     fn get_parameter_text(&self, index: i32) -> String {
         match index {
-            0 => format!("{:.1}%", self.a_white_noise * 100.0),
-            1 => format!("{:.1}%", self.a_perlin * 100.0),
-            2 => format!("{:.1}%", self.a_value * 100.0),
-            3 => format!("{:.1}%", self.a_worley * 100.0),
-            4 => format!("{:.1}%", self.a_ridged_multi * 100.0),
-            5 => format!("{:.1}%", self.a_open_simplex * 100.0),
-            6 => format!("{:.1}%", self.a_billow * 100.0),
-            7 => format!("{:.1}%", self.a_cylinders * 100.0),
-            8 => format!("{:.1}%", self.a_hybrid_multi * 100.0),
-            9 => format!("{:.1}%", self.a_basic_multi * 100.0),
-            10 => format!("{:.1}s", self.attack_duration),
-            11 => format!("{:.1}s", self.release_duration),
+            0 => format!("{:.1}%", self.a_white_noise.get() * 100.0),
+            1 => format!("{:.1}%", self.a_perlin.get() * 100.0),
+            2 => format!("{:.1}%", self.a_value.get() * 100.0),
+            3 => format!("{:.1}%", self.a_worley.get() * 100.0),
+            4 => format!("{:.1}%", self.a_ridged_multi.get() * 100.0),
+            5 => format!("{:.1}%", self.a_open_simplex.get() * 100.0),
+            6 => format!("{:.1}%", self.a_billow.get() * 100.0),
+            7 => format!("{:.1}%", self.a_cylinders.get() * 100.0),
+            8 => format!("{:.1}%", self.a_hybrid_multi.get() * 100.0),
+            9 => format!("{:.1}%", self.a_basic_multi.get() * 100.0),
+            10 => format!("{:.1}s", self.attack_duration.get()),
+            11 => format!("{:.1}s", self.release_duration.get()),
             _ => "".to_string(),
         }
     }
@@ -149,27 +135,75 @@ impl Plugin for Whisper {
         }.to_string()
     }
 
-    fn set_parameter(&mut self, index: i32, val: f32) {
+    fn set_parameter(&self, index: i32, val: f32) {
         match index {
-            0 => self.a_white_noise = val,
-            1 => self.a_perlin = val,
-            2 => self.a_value = val,
-            3 => self.a_worley = val,
-            4 => self.a_ridged_multi = val,
-            5 => self.a_open_simplex = val,
-            6 => self.a_billow = val,
-            7 => self.a_cylinders = val,
-            8 => self.a_hybrid_multi = val,
-            9 => self.a_basic_multi = val,
-            10 => self.attack_duration = val.max(0.001), // prevent division by zero
-            11 => self.release_duration = val.max(0.001),
+            0 => self.a_white_noise.set(val),
+            1 => self.a_perlin.set(val),
+            2 => self.a_value.set(val),
+            3 => self.a_worley.set(val),
+            4 => self.a_ridged_multi.set(val),
+            5 => self.a_open_simplex.set(val),
+            6 => self.a_billow.set(val),
+            7 => self.a_cylinders.set(val),
+            8 => self.a_hybrid_multi.set(val),
+            9 => self.a_basic_multi.set(val),
+            10 => self.attack_duration.set(val.max(0.001)), // prevent division by zero
+            11 => self.release_duration.set(val.max(0.001)),
             _ => (),
         }
     }
+}
 
+impl Default for WhisperParameters {
+    fn default() -> WhisperParameters {
+        WhisperParameters {
+            a_white_noise: AtomicFloat::new(1.0),
+            a_perlin: AtomicFloat::new(0.0),
+            a_value: AtomicFloat::new(0.0),
+            a_worley: AtomicFloat::new(0.0),
+            a_ridged_multi: AtomicFloat::new(0.0),
+            a_open_simplex: AtomicFloat::new(0.0),
+            a_billow: AtomicFloat::new(0.0),
+            a_cylinders: AtomicFloat::new(0.0),
+            a_hybrid_multi: AtomicFloat::new(0.0),
+            a_basic_multi: AtomicFloat::new(0.0),
+            attack_duration: AtomicFloat::new(0.5),
+            release_duration: AtomicFloat::new(0.5),
+        }
+    }
+}
+
+impl Default for Whisper {
+    fn default() -> Whisper {
+        Whisper {
+            notes: vec![],
+            sample_rate: 44100.0,
+            time: 0.0,
+
+            // Amounts
+            params: Arc::new(WhisperParameters::default()),
+
+            // Noise functions
+            fn_perlin: Perlin::new(),
+            fn_value: Value::new(),
+            fn_worley: Worley::new(),
+            fn_ridged_multi: RidgedMulti::new(),
+            fn_open_simplex: OpenSimplex::new(),
+            fn_billow: Billow::new(),
+            fn_cylinders: Cylinders::new(),
+            fn_hybrid_multi: HybridMulti::new(),
+            fn_basic_multi: BasicMulti::new(),
+
+            last_sample: 0.0,
+        }
+    }
+}
+
+
+impl Plugin for Whisper {
     fn get_info(&self) -> Info {
         Info {
-            name: "Whisper".to_string(),
+            name: "WhisperRRR".to_string(),
             unique_id: 1337,
 
             inputs: 0,
@@ -214,12 +248,13 @@ impl Plugin for Whisper {
 
     fn process(&mut self, buffer: &mut AudioBuffer<f32>) {
         let samples = buffer.samples();
-        let (_, outputs) = buffer.split();
+        let (_, mut outputs) = buffer.split();
         let output_count = outputs.len();
 
         let per_sample = (1.0 / self.sample_rate) as f64;
-        let attack_per_sample = per_sample * (1.0 / self.attack_duration as f64);
-        let release_per_sample = per_sample * (1.0 / self.release_duration as f64);
+        let attack_per_sample = per_sample * (1.0 / self.params.attack_duration.get() as f64);
+        let release_per_sample = per_sample * (1.0 / self.params.release_duration.get() as f64);
+
 
         let mut output_sample;
         for sample_idx in 0..samples {
@@ -242,12 +277,65 @@ impl Plugin for Whisper {
             self.notes.retain(|n| n.alpha > 0.0);
 
             if !self.notes.is_empty() {
-                let signal = self.combined_noises();
+                let mut signal = 0.0;
+                let params = self.params.deref();
+
+
+                for note in &self.notes {
+                    let point = [0.0, self.time * midi_pitch_to_freq(note.note)];
+
+                    if params.a_white_noise.get() > 0.0 && note.alpha > 0.0001 {
+                        signal += ((random::<f64>() - 0.5) * 2.0) * params.a_white_noise.get() as f64 * note.alpha;
+                    }
+
+                    if params.a_perlin.get() > 0.0 && note.alpha > 0.0001 {
+                        signal += self.fn_perlin.get(point) * params.a_perlin.get() as f64 * note.alpha;
+                    }
+
+                    if params.a_value.get() > 0.0 && note.alpha > 0.0001 {
+                        signal += self.fn_value.get(point) * params.a_value.get() as f64 * note.alpha;
+                    }
+
+                    if params.a_worley.get() > 0.0 && note.alpha > 0.0001 {
+                        signal += self.fn_worley.get(point) * params.a_worley.get() as f64 * note.alpha;
+                    }
+
+                    if params.a_ridged_multi.get() > 0.0 && note.alpha > 0.0001 {
+                        signal += self.fn_ridged_multi.get(point) * params.a_ridged_multi.get() as f64 * note.alpha;
+                    }
+
+                    if params.a_open_simplex.get() > 0.0 && note.alpha > 0.0001 {
+                        signal += self.fn_open_simplex.get(point) * params.a_open_simplex.get() as f64 * note.alpha;
+                    }
+
+                    if params.a_billow.get() > 0.0 && note.alpha > 0.0001 {
+                        signal += self.fn_billow.get(point) * params.a_billow.get() as f64 * note.alpha;
+                    }
+
+                    if params.a_cylinders.get() > 0.0 && note.alpha > 0.0001 {
+                        signal += self.fn_cylinders.get(point) * params.a_cylinders.get() as f64 * note.alpha;
+                    }
+
+                    if params.a_hybrid_multi.get() > 0.0 && note.alpha > 0.0001 {
+                        signal += self.fn_hybrid_multi.get(point) * params.a_hybrid_multi.get() as f64 * note.alpha;
+                    }
+
+                    if params.a_basic_multi.get() > 0.0 && note.alpha > 0.0001 {
+                        signal += self.fn_basic_multi.get(point) * params.a_basic_multi.get() as f64 * note.alpha;
+                    }
+                }
+
+
                 output_sample = signal as f32;
                 self.time += per_sample;
             } else {
                 output_sample = 0.0;
             }
+
+            unsafe {
+                LAST_SAMPLE = output_sample as f64;
+            }
+
 
             for buf_idx in 0..output_count {
                 let buff = outputs.get_mut(buf_idx);
@@ -255,58 +343,37 @@ impl Plugin for Whisper {
             }
         }
     }
-}
 
-impl Whisper {
-    fn combined_noises(&self) -> f64 {
-        let mut signal = 0.0;
+    fn get_parameter_object(&mut self) -> Arc<dyn PluginParameters> {
+        Arc::clone(&self.params) as Arc<dyn PluginParameters>
+    }
+
+    fn get_editor(&mut self) -> Option<Box<dyn Editor>> {
+        let gui = vst_gui::new_plugin_gui(
+            String::from(HTML),
+            Box::new(move |message: String| {
+                let mut tokens = message.split_whitespace();
+
+                let command = tokens.next().unwrap_or("");
+                let argument = tokens.next().unwrap_or("").parse::<f32>();
+
+                let mut result = String::new();
+
+                unsafe {
+                    match command {
+                        "getLast" => {
+                            result = LAST_SAMPLE.to_string();
+                        }
+                        _ => {}
+                    }
+                }
+
+                result
+            }),
+            Some((480, 320)));
 
 
-        for note in &self.notes {
-            let point = [0.0, self.time * midi_pitch_to_freq(note.note)];
-
-            if self.a_white_noise > 0.0 && note.alpha > 0.0001 {
-                signal += ((random::<f64>() - 0.5) * 2.0) * self.a_white_noise as f64 * note.alpha;
-            }
-
-            if self.a_perlin > 0.0 && note.alpha > 0.0001 {
-                signal += self.fn_perlin.get(point) * self.a_perlin as f64 * note.alpha;
-            }
-
-            if self.a_value > 0.0 && note.alpha > 0.0001 {
-                signal += self.fn_value.get(point) * self.a_value as f64 * note.alpha;
-            }
-
-            if self.a_worley > 0.0 && note.alpha > 0.0001 {
-                signal += self.fn_worley.get(point) * self.a_worley as f64 * note.alpha;
-            }
-
-            if self.a_ridged_multi > 0.0 && note.alpha > 0.0001 {
-                signal += self.fn_ridged_multi.get(point) * self.a_ridged_multi as f64 * note.alpha;
-            }
-
-            if self.a_open_simplex > 0.0 && note.alpha > 0.0001 {
-                signal += self.fn_open_simplex.get(point) * self.a_open_simplex as f64 * note.alpha;
-            }
-
-            if self.a_billow > 0.0 && note.alpha > 0.0001 {
-                signal += self.fn_billow.get(point) * self.a_billow as f64 * note.alpha;
-            }
-
-            if self.a_cylinders > 0.0 && note.alpha > 0.0001 {
-                signal += self.fn_cylinders.get(point) * self.a_cylinders as f64 * note.alpha;
-            }
-
-            if self.a_hybrid_multi > 0.0 && note.alpha > 0.0001 {
-                signal += self.fn_hybrid_multi.get(point) * self.a_hybrid_multi as f64 * note.alpha;
-            }
-
-            if self.a_basic_multi > 0.0 && note.alpha > 0.0001 {
-                signal += self.fn_basic_multi.get(point) * self.a_basic_multi as f64 * note.alpha;
-            }
-        }
-
-        signal
+        Some(Box::new(gui))
     }
 }
 

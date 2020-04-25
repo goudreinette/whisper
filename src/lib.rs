@@ -158,6 +158,8 @@ impl Plugin for Whisper {
             7 => self.a_cylinders = val,
             8 => self.a_hybrid_multi = val,
             9 => self.a_basic_multi = val,
+            10 => self.attack_duration = val,
+            11 => self.release_duration = val,
             _ => (),
         }
     }
@@ -169,7 +171,7 @@ impl Plugin for Whisper {
 
             inputs: 0,
             outputs: 2,
-            parameters: 10,
+            parameters: 12,
 
             category: Category::Synth,
 
@@ -215,10 +217,12 @@ impl Plugin for Whisper {
             let time = self.time;
 
 
-            if self.notes > 0 {
-                self.alpha = self.alpha.lerp(1.0, 0.000125)
-            } else {
-                self.alpha = self.alpha.lerp(0.0, 0.000125)
+            if self.notes > 0 && self.alpha < 1.0 {
+                self.alpha += per_sample * self.attack_duration as f64
+            }
+
+            if self.notes == 0 && self.alpha > 0.0 {
+                self.alpha += per_sample * self.release_duration as f64
             }
 
 

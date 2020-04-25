@@ -1,9 +1,7 @@
 #[macro_use]
 extern crate vst;
 extern crate rand;
-extern crate lerp;
 extern crate noise;
-extern crate vst_gui;
 
 
 use vst::plugin::{Info, Plugin, Category, PluginParameters};
@@ -11,21 +9,16 @@ use vst::buffer::AudioBuffer;
 use rand::random;
 use vst::api::Events;
 use vst::event::Event;
-use std::f64::consts::PI;
-use noise::{NoiseFn, Perlin, Worley, Point2, Billow, Cylinders, OpenSimplex, RidgedMulti, SuperSimplex, Value, HybridMulti, BasicMulti};
-use vst::editor::Editor;
-use std::sync::{Arc, Mutex, MutexGuard};
-use vst_gui::{JavascriptCallback, PluginGui};
-use vst::util::AtomicFloat;
+use noise::{NoiseFn, Perlin, Worley, Billow, Cylinders, OpenSimplex, RidgedMulti, Value, HybridMulti, BasicMulti};
+use std::sync::{Arc};
 use std::ops::Deref;
-use std::rc::Rc;
 
+mod parameters;
+mod util;
 
-const TAU: f64 = PI * 2.0;
+use parameters::WhisperParameters;
+use util::midi_pitch_to_freq;
 
-const HTML: &'static str = include_str!("./ui.html");
-
-static mut LAST_SAMPLE : f64 = 0.0;
 
 #[derive(Debug, Copy, Clone)]
 struct Note {
@@ -52,126 +45,10 @@ struct Whisper {
     fn_hybrid_multi: HybridMulti,
     fn_basic_multi: BasicMulti,
 
-    params: Arc<WhisperParameters>,
-
-    last_sample: f32,
+    params: Arc<WhisperParameters>
 }
 
 
-/*
-|--------------------------------------------------------------------------
-| Parameters
-|--------------------------------------------------------------------------
-*/
-struct WhisperParameters {
-    // Amounts
-    a_white_noise: AtomicFloat,
-    a_perlin: AtomicFloat,
-    a_value: AtomicFloat,
-    a_worley: AtomicFloat,
-    a_ridged_multi: AtomicFloat,
-    a_open_simplex: AtomicFloat,
-    a_billow: AtomicFloat,
-    a_cylinders: AtomicFloat,
-    a_hybrid_multi: AtomicFloat,
-    a_basic_multi: AtomicFloat,
-
-    attack_duration: AtomicFloat,
-    release_duration: AtomicFloat,
-}
-
-impl PluginParameters for WhisperParameters {
-    fn get_parameter(&self, index: i32) -> f32 {
-        match index {
-            0 => self.a_white_noise.get(),
-            1 => self.a_perlin.get(),
-            2 => self.a_value.get(),
-            3 => self.a_worley.get(),
-            4 => self.a_ridged_multi.get(),
-            5 => self.a_open_simplex.get(),
-            6 => self.a_billow.get(),
-            7 => self.a_cylinders.get(),
-            8 => self.a_hybrid_multi.get(),
-            9 => self.a_basic_multi.get(),
-            10 => self.attack_duration.get(),
-            11 => self.release_duration.get(),
-            _ => 0.0,
-        }
-    }
-
-    fn get_parameter_text(&self, index: i32) -> String {
-        match index {
-            0 => format!("{:.1}%", self.a_white_noise.get() * 100.0),
-            1 => format!("{:.1}%", self.a_perlin.get() * 100.0),
-            2 => format!("{:.1}%", self.a_value.get() * 100.0),
-            3 => format!("{:.1}%", self.a_worley.get() * 100.0),
-            4 => format!("{:.1}%", self.a_ridged_multi.get() * 100.0),
-            5 => format!("{:.1}%", self.a_open_simplex.get() * 100.0),
-            6 => format!("{:.1}%", self.a_billow.get() * 100.0),
-            7 => format!("{:.1}%", self.a_cylinders.get() * 100.0),
-            8 => format!("{:.1}%", self.a_hybrid_multi.get() * 100.0),
-            9 => format!("{:.1}%", self.a_basic_multi.get() * 100.0),
-            10 => format!("{:.1}s", self.attack_duration.get()),
-            11 => format!("{:.1}s", self.release_duration.get()),
-            _ => "".to_string(),
-        }
-    }
-
-    fn get_parameter_name(&self, index: i32) -> String {
-        match index {
-            0 => "White",
-            1 => "Perlin",
-            2 => "Value",
-            3 => "Worley",
-            4 => "RidgedMulti",
-            5 => "OpenSimplex",
-            6 => "Billow",
-            7 => "Cylinders",
-            8 => "HybridMulti",
-            9 => "BasicMulti",
-            10 => "Attack",
-            11 => "Release",
-            _ => "",
-        }.to_string()
-    }
-
-    fn set_parameter(&self, index: i32, val: f32) {
-        match index {
-            0 => self.a_white_noise.set(val),
-            1 => self.a_perlin.set(val),
-            2 => self.a_value.set(val),
-            3 => self.a_worley.set(val),
-            4 => self.a_ridged_multi.set(val),
-            5 => self.a_open_simplex.set(val),
-            6 => self.a_billow.set(val),
-            7 => self.a_cylinders.set(val),
-            8 => self.a_hybrid_multi.set(val),
-            9 => self.a_basic_multi.set(val),
-            10 => self.attack_duration.set(val.max(0.001)), // prevent division by zero
-            11 => self.release_duration.set(val.max(0.001)),
-            _ => (),
-        }
-    }
-}
-
-impl Default for WhisperParameters {
-    fn default() -> WhisperParameters {
-        WhisperParameters {
-            a_white_noise: AtomicFloat::new(1.0),
-            a_perlin: AtomicFloat::new(0.0),
-            a_value: AtomicFloat::new(0.0),
-            a_worley: AtomicFloat::new(0.0),
-            a_ridged_multi: AtomicFloat::new(0.0),
-            a_open_simplex: AtomicFloat::new(0.0),
-            a_billow: AtomicFloat::new(0.0),
-            a_cylinders: AtomicFloat::new(0.0),
-            a_hybrid_multi: AtomicFloat::new(0.0),
-            a_basic_multi: AtomicFloat::new(0.0),
-            attack_duration: AtomicFloat::new(0.5),
-            release_duration: AtomicFloat::new(0.5),
-        }
-    }
-}
 
 impl Default for Whisper {
     fn default() -> Whisper {
@@ -193,8 +70,6 @@ impl Default for Whisper {
             fn_cylinders: Cylinders::new(),
             fn_hybrid_multi: HybridMulti::new(),
             fn_basic_multi: BasicMulti::new(),
-
-            last_sample: 0.0,
         }
     }
 }
@@ -258,9 +133,9 @@ impl Plugin for Whisper {
 
         let mut output_sample;
         for sample_idx in 0..samples {
-            /**
-             * Update the alpha...
-             */
+
+
+            // Update the alpha of each note...
             for note in self.notes.iter_mut() {
                 if !note.is_released && note.alpha < 1.0 {
                     note.alpha += attack_per_sample;
@@ -271,11 +146,11 @@ impl Plugin for Whisper {
                 }
             }
 
-            /**
-             * ...and remove finished notes.
-             */
+            // ...and remove finished notes.
             self.notes.retain(|n| n.alpha > 0.0);
 
+
+            // Sum up all the different notes and noise types
             if !self.notes.is_empty() {
                 let mut signal = 0.0;
                 let params = self.params.deref();
@@ -332,11 +207,6 @@ impl Plugin for Whisper {
                 output_sample = 0.0;
             }
 
-            unsafe {
-                LAST_SAMPLE = output_sample as f64;
-            }
-
-
             for buf_idx in 0..output_count {
                 let buff = outputs.get_mut(buf_idx);
                 buff[sample_idx] = output_sample;
@@ -347,45 +217,7 @@ impl Plugin for Whisper {
     fn get_parameter_object(&mut self) -> Arc<dyn PluginParameters> {
         Arc::clone(&self.params) as Arc<dyn PluginParameters>
     }
-
-    fn get_editor(&mut self) -> Option<Box<dyn Editor>> {
-        let gui = vst_gui::new_plugin_gui(
-            String::from(HTML),
-            Box::new(move |message: String| {
-                let mut tokens = message.split_whitespace();
-
-                let command = tokens.next().unwrap_or("");
-                let argument = tokens.next().unwrap_or("").parse::<f32>();
-
-                let mut result = String::new();
-
-                unsafe {
-                    match command {
-                        "getLast" => {
-                            result = LAST_SAMPLE.to_string();
-                        }
-                        _ => {}
-                    }
-                }
-
-                result
-            }),
-            Some((480, 320)));
-
-
-        Some(Box::new(gui))
-    }
 }
 
 
 plugin_main!(Whisper);
-
-
-
-fn midi_pitch_to_freq(pitch: u8) -> f64 {
-    const A4_PITCH: i8 = 69;
-    const A4_FREQ: f64 = 440.0;
-
-    // Midi notes can be 0-127
-    ((f64::from(pitch as i8 - A4_PITCH)) / 12.).exp2() * A4_FREQ
-}

@@ -23,9 +23,10 @@ struct Whisper {
     note: u8,
     sample_rate: f32,
     time: f64,
-    note_duration: f64,
-    decay_time: f64,
     alpha: f64,
+
+    attack_duration: f32,
+    release_duration: f32,
 
     // Amounts
     a_white_noise: f32,
@@ -59,9 +60,10 @@ impl Default for Whisper {
             note: 0,
             sample_rate: 44100.0,
             time: 0.0,
-            note_duration: 0.0,
-            decay_time: 0.0,
             alpha: 0.0,
+
+            attack_duration: 1.0,
+            release_duration: 1.0,
 
             // Amounts
             a_white_noise: 1.0,
@@ -103,6 +105,7 @@ impl Plugin for Whisper {
             7 => self.a_cylinders,
             8 => self.a_hybrid_multi,
             9 => self.a_basic_multi,
+            10 => self.attack_duration,
             _ => 0.0,
         }
     }
@@ -119,6 +122,8 @@ impl Plugin for Whisper {
             7 => format!("{:.1}%", self.a_cylinders * 100.0),
             8 => format!("{:.1}%", self.a_hybrid_multi * 100.0),
             9 => format!("{:.1}%", self.a_basic_multi * 100.0),
+            10 => format!("{:.1}s", self.attack_duration),
+            11 => format!("{:.1}s", self.release_duration),
             _ => "".to_string(),
         }
     }
@@ -135,6 +140,8 @@ impl Plugin for Whisper {
             7 => "Cylinders",
             8 => "HybridMulti",
             9 => "BasicMulti",
+            10 => "Attack",
+            11 => "Release",
             _ => "",
         }.to_string()
     }
@@ -240,16 +247,45 @@ impl Whisper {
         let point = [0.0, self.time * midi_pitch_to_freq(self.note)];
         let mut signal = 0.0;
 
-        signal += ((random::<f64>() - 0.5) * 2.0) * self.a_white_noise as f64;
-        signal += self.fn_perlin.get(point) * self.a_perlin as f64;
-        signal += self.fn_value.get(point) * self.a_value as f64;
-        signal += self.fn_worley.get(point) * self.a_worley as f64;
-        signal += self.fn_ridged_multi.get(point) * self.a_ridged_multi as f64;
-        signal += self.fn_open_simplex.get(point) * self.a_open_simplex as f64;
-        signal += self.fn_billow.get(point) * self.a_billow as f64;
-        signal += self.fn_cylinders.get(point) * self.a_cylinders as f64;
-        signal += self.fn_hybrid_multi.get(point) * self.a_hybrid_multi as f64;
-        signal += self.fn_basic_multi.get(point) * self.a_basic_multi as f64;
+        if self.a_white_noise > 0.0 {
+            signal += ((random::<f64>() - 0.5) * 2.0) * self.a_white_noise as f64;
+        }
+
+        if self.a_perlin > 0.0 {
+            signal += self.fn_perlin.get(point) * self.a_perlin as f64;
+        }
+
+        if self.a_value > 0.0 {
+            signal += self.fn_value.get(point) * self.a_value as f64;
+        }
+
+        if self.a_worley > 0.0 {
+            signal += self.fn_worley.get(point) * self.a_worley as f64;
+        }
+
+        if self.a_ridged_multi > 0.0 {
+            signal += self.fn_ridged_multi.get(point) * self.a_ridged_multi as f64;
+        }
+
+        if self.a_open_simplex > 0.0 {
+            signal += self.fn_open_simplex.get(point) * self.a_open_simplex as f64;
+        }
+
+        if self.a_billow > 0.0 {
+            signal += self.fn_billow.get(point) * self.a_billow as f64;
+        }
+
+        if self.a_cylinders > 0.0 {
+            signal += self.fn_cylinders.get(point) * self.a_cylinders as f64;
+        }
+
+        if self.a_hybrid_multi > 0.0 {
+            signal += self.fn_hybrid_multi.get(point) * self.a_hybrid_multi as f64;
+        }
+
+        if self.a_basic_multi > 0.0 {
+            signal += self.fn_basic_multi.get(point) * self.a_basic_multi as f64;
+        }
 
         signal
     }

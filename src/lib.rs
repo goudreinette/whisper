@@ -4,26 +4,30 @@ extern crate rand;
 extern crate lerp;
 extern crate noise;
 
-use lerp::Lerp;
-use vst::plugin::{Info, Plugin, Category, HostCallback};
+use vst::plugin::{Info, Plugin, Category};
 use vst::buffer::AudioBuffer;
 use rand::random;
 use vst::api::Events;
 use vst::event::Event;
 use std::f64::consts::PI;
 use noise::{NoiseFn, Perlin, Worley, Point2, Billow, Cylinders, OpenSimplex, RidgedMulti, SuperSimplex, Value, HybridMulti, BasicMulti};
-use std::sync::Arc;
 
 
 const TAU: f64 = PI * 2.0;
 
+#[derive(Debug, Copy, Clone)]
+struct Note {
+    alpha: f64,
+    note: u8,
+    is_released: bool,
+}
+
 
 struct Whisper {
-    notes: u8,
-    note: u8,
+    notes: Vec<Note>,
+
     sample_rate: f32,
     time: f64,
-    alpha: f64,
 
     attack_duration: f32,
     release_duration: f32,
@@ -56,11 +60,9 @@ struct Whisper {
 impl Default for Whisper {
     fn default() -> Whisper {
         Whisper {
-            notes: 0,
-            note: 0,
+            notes: vec![],
             sample_rate: 44100.0,
             time: 0.0,
-            alpha: 0.0,
 
             attack_duration: 0.5,
             release_duration: 0.5,
@@ -187,11 +189,14 @@ impl Plugin for Whisper {
                 Event::Midi(ev) => {
                     match ev.data[0] {
                         144 => {
-                            self.notes += 1;
-                            self.note = ev.data[1];
+                            self.notes.push(Note { note: ev.data[1], alpha: 0.0, is_released: false });
                         }
                         128 => {
-                            self.notes -= 1;
+                            for note in self.notes.iter_mut() {
+                                if note.note == ev.data[1] {
+                                    note.is_released = true;
+                                }
+                            }
                         }
                         _ => ()
                     }
@@ -209,31 +214,36 @@ impl Plugin for Whisper {
 
     fn process(&mut self, buffer: &mut AudioBuffer<f32>) {
         let samples = buffer.samples();
-        let (_, mut outputs) = buffer.split();
+        let (_, outputs) = buffer.split();
         let output_count = outputs.len();
+
         let per_sample = (1.0 / self.sample_rate) as f64;
+        let attack_per_sample = per_sample * (1.0 / self.attack_duration as f64);
+        let release_per_sample = per_sample * (1.0 / self.release_duration as f64);
 
         let mut output_sample;
         for sample_idx in 0..samples {
-            let time = self.time;
+            /**
+             * Update the alpha...
+             */
+            for note in self.notes.iter_mut() {
+                if !note.is_released && note.alpha < 1.0 {
+                    note.alpha += attack_per_sample;
+                }
 
-
-            if self.notes > 0 && self.alpha < 1.0 {
-                self.alpha += per_sample * (1.0 / self.attack_duration as f64)
+                if note.is_released {
+                    note.alpha -= release_per_sample;
+                }
             }
 
-            if self.notes == 0 && self.alpha > 0.0 {
-                self.alpha -= per_sample * (1.0 / self.release_duration as f64)
-            }
+            /**
+             * ...and remove finished notes.
+             */
+            self.notes.retain(|n| n.alpha > 0.0);
 
-
-            if self.notes != 0 || self.alpha > 0.0001 {
-                let sin = (time * midi_pitch_to_freq(self.note) * TAU).sin();
-
+            if !self.notes.is_empty() {
                 let signal = self.combined_noises();
-
-                output_sample = (signal * self.alpha) as f32;
-
+                output_sample = signal as f32;
                 self.time += per_sample;
             } else {
                 output_sample = 0.0;
@@ -249,47 +259,51 @@ impl Plugin for Whisper {
 
 impl Whisper {
     fn combined_noises(&self) -> f64 {
-        let point = [0.0, self.time * midi_pitch_to_freq(self.note)];
         let mut signal = 0.0;
 
-        if self.a_white_noise > 0.0 {
-            signal += ((random::<f64>() - 0.5) * 2.0) * self.a_white_noise as f64;
-        }
 
-        if self.a_perlin > 0.0 {
-            signal += self.fn_perlin.get(point) * self.a_perlin as f64;
-        }
+        for note in &self.notes {
+            let point = [0.0, self.time * midi_pitch_to_freq(note.note)];
 
-        if self.a_value > 0.0 {
-            signal += self.fn_value.get(point) * self.a_value as f64;
-        }
+            if self.a_white_noise > 0.0 && note.alpha > 0.0001 {
+                signal += ((random::<f64>() - 0.5) * 2.0) * self.a_white_noise as f64 * note.alpha;
+            }
 
-        if self.a_worley > 0.0 {
-            signal += self.fn_worley.get(point) * self.a_worley as f64;
-        }
+            if self.a_perlin > 0.0 && note.alpha > 0.0001 {
+                signal += self.fn_perlin.get(point) * self.a_perlin as f64 * note.alpha;
+            }
 
-        if self.a_ridged_multi > 0.0 {
-            signal += self.fn_ridged_multi.get(point) * self.a_ridged_multi as f64;
-        }
+            if self.a_value > 0.0 && note.alpha > 0.0001 {
+                signal += self.fn_value.get(point) * self.a_value as f64 * note.alpha;
+            }
 
-        if self.a_open_simplex > 0.0 {
-            signal += self.fn_open_simplex.get(point) * self.a_open_simplex as f64;
-        }
+            if self.a_worley > 0.0 && note.alpha > 0.0001 {
+                signal += self.fn_worley.get(point) * self.a_worley as f64 * note.alpha;
+            }
 
-        if self.a_billow > 0.0 {
-            signal += self.fn_billow.get(point) * self.a_billow as f64;
-        }
+            if self.a_ridged_multi > 0.0 && note.alpha > 0.0001 {
+                signal += self.fn_ridged_multi.get(point) * self.a_ridged_multi as f64 * note.alpha;
+            }
 
-        if self.a_cylinders > 0.0 {
-            signal += self.fn_cylinders.get(point) * self.a_cylinders as f64;
-        }
+            if self.a_open_simplex > 0.0 && note.alpha > 0.0001 {
+                signal += self.fn_open_simplex.get(point) * self.a_open_simplex as f64 * note.alpha;
+            }
 
-        if self.a_hybrid_multi > 0.0 {
-            signal += self.fn_hybrid_multi.get(point) * self.a_hybrid_multi as f64;
-        }
+            if self.a_billow > 0.0 && note.alpha > 0.0001 {
+                signal += self.fn_billow.get(point) * self.a_billow as f64 * note.alpha;
+            }
 
-        if self.a_basic_multi > 0.0 {
-            signal += self.fn_basic_multi.get(point) * self.a_basic_multi as f64;
+            if self.a_cylinders > 0.0 && note.alpha > 0.0001 {
+                signal += self.fn_cylinders.get(point) * self.a_cylinders as f64 * note.alpha;
+            }
+
+            if self.a_hybrid_multi > 0.0 && note.alpha > 0.0001 {
+                signal += self.fn_hybrid_multi.get(point) * self.a_hybrid_multi as f64 * note.alpha;
+            }
+
+            if self.a_basic_multi > 0.0 && note.alpha > 0.0001 {
+                signal += self.fn_basic_multi.get(point) * self.a_basic_multi as f64 * note.alpha;
+            }
         }
 
         signal

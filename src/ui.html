@@ -15,14 +15,16 @@
 </div>
 
 <script>
-    let points = []
+    window.y = innerHeight / 2;
+
 
     function setup() {
         createCanvas(innerWidth, innerHeight)
     }
 
     function draw() {
-
+        fill('white')
+        ellipse(width / 2, y, 5)
     }
 </script>
 

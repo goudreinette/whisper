@@ -3,7 +3,7 @@ extern crate vst;
 extern crate rand;
 extern crate lerp;
 extern crate noise;
-extern crate vst_gui;
+extern crate web_view;
 
 
 use vst::plugin::{Info, Plugin, Category, PluginParameters};
@@ -15,17 +15,18 @@ use std::f64::consts::PI;
 use noise::{NoiseFn, Perlin, Worley, Point2, Billow, Cylinders, OpenSimplex, RidgedMulti, SuperSimplex, Value, HybridMulti, BasicMulti};
 use vst::editor::Editor;
 use std::sync::{Arc, Mutex, MutexGuard};
-use vst_gui::{JavascriptCallback, PluginGui};
 use vst::util::AtomicFloat;
 use std::ops::Deref;
 use std::rc::Rc;
+use std::thread;
+use web_view::{Content, WebView};
+use std::ffi::c_void;
 
 
 const TAU: f64 = PI * 2.0;
 
 const HTML: &'static str = include_str!("./ui.html");
 
-static mut LAST_SAMPLE: f64 = 0.0;
 
 #[derive(Debug, Copy, Clone)]
 struct Note {
@@ -53,7 +54,8 @@ struct Whisper {
     fn_basic_multi: BasicMulti,
 
     params: Arc<WhisperParameters>,
-    gui: Arc<Mutex<PluginGui>>,
+
+    gui: Arc<Mutex<WebViewPluginGui>>
 }
 
 
@@ -174,6 +176,7 @@ impl Default for WhisperParameters {
 
 impl Default for Whisper {
     fn default() -> Whisper {
+
         Whisper {
             notes: vec![],
             sample_rate: 44100.0,
@@ -193,12 +196,7 @@ impl Default for Whisper {
             fn_hybrid_multi: HybridMulti::new(),
             fn_basic_multi: BasicMulti::new(),
 
-            gui: Arc::new(Mutex::new(vst_gui::new_plugin_gui(
-                String::from(HTML),
-                Box::new(move |message: String| {
-                    String::new()
-                }),
-                Some((480, 320))))),
+            gui: Arc::new(Mutex::new(WebViewPluginGui::new()))
         }
     }
 }
@@ -222,6 +220,8 @@ impl Plugin for Whisper {
 
 
     fn process_events(&mut self, events: &Events) {
+
+
         for event in events.events() {
             match event {
                 Event::Midi(ev) => {
@@ -258,7 +258,6 @@ impl Plugin for Whisper {
         let per_sample = (1.0 / self.sample_rate) as f64;
         let attack_per_sample = per_sample * (1.0 / self.params.attack_duration.get() as f64);
         let release_per_sample = per_sample * (1.0 / self.params.release_duration.get() as f64);
-
 
         let mut output_sample;
         for sample_idx in 0..samples {
@@ -332,6 +331,7 @@ impl Plugin for Whisper {
 
                 output_sample = signal as f32;
                 self.time += per_sample;
+
             } else {
                 output_sample = 0.0;
             }
@@ -364,3 +364,63 @@ fn midi_pitch_to_freq(pitch: u8) -> f64 {
     // Midi notes can be 0-127
     ((f64::from(pitch as i8 - A4_PITCH)) / 12.).exp2() * A4_FREQ
 }
+
+
+
+
+
+/*
+|--------------------------------------------------------------------------
+| GUI
+|--------------------------------------------------------------------------
+|
+*/
+
+struct WebViewPluginGui {
+    webview: WebView<'static, ()>
+}
+
+impl WebViewPluginGui {
+    fn new() -> WebViewPluginGui {
+        let html_content = "<html><body><h1>Hello, World!</h1></body></html>";
+        let webview = web_view::builder()
+            .title("My Project")
+            .content(Content::Html(html_content))
+            .size(400, 400)
+            .resizable(false)
+            .debug(true)
+            .user_data(())
+            .invoke_handler(|_webview, _arg| Ok(()))
+            .build()
+            .unwrap();
+
+        WebViewPluginGui {
+            webview: webview
+        }
+    }
+}
+
+
+impl vst::editor::Editor for WebViewPluginGui {
+    fn size(&self) -> (i32, i32) {
+        (400,400)
+    }
+
+    fn position(&self) -> (i32, i32) {
+        (400,400)
+    }
+
+    fn close(&mut self) {
+        self.webview.terminate()
+    }
+
+    fn open(&mut self, parent_handle: *mut c_void) -> bool {
+        true
+    }
+
+    fn is_open(&mut self) -> bool {
+        true
+    }
+}
+
+

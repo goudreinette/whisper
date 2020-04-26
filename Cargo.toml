@@ -8,11 +8,11 @@ edition = "2018"
 
 [dependencies]
 vst = { path = "../vst-rs" }
-vst-gui = { path = "../rust-vst-gui" }
 rand = "0.3"
 lerp = "0.2.0"
 noise = "0.6.0"
 lazy_static = "1.4.0"
+web-view = { version = "0.5.4" }
 
 [lib]
 name = "whisper"

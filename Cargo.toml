@@ -2,16 +2,14 @@
 name = "whisper"
 version = "0.1.0"
 authors = ["Rein van der Woerd <reinvanderwoerd@me.com>"]
-edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-vst = {path = "../vst-rs" }
-vst-gui = { git = "https://github.com/mikesoylu/rust-vst-gui.git" }
-rand = "0.3"
-lerp = "0.2.0"
-noise = "0.6.0"
+vst = "0.3.0"
+rand = "0.8.5"
+lerp = "0.4.0"
+noise = "0.7.0"
 lazy_static = "1.4.0"
 
 [lib]

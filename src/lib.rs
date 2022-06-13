@@ -4,6 +4,7 @@ extern crate rand;
 extern crate noise;
 
 
+use vst::prelude::HostCallback;
 use vst::plugin::{Info, Plugin, Category, PluginParameters};
 use vst::buffer::AudioBuffer;
 use rand::random;
@@ -76,9 +77,13 @@ impl Default for Whisper {
 
 
 impl Plugin for Whisper {
+    fn new(_host: HostCallback) -> Whisper {
+        return Whisper::default()
+    }
+    
     fn get_info(&self) -> Info {
         Info {
-            name: "WhisperRRR".to_string(),
+            name: "Whisper".to_string(),
             unique_id: 1337,
 
             inputs: 0,
@@ -90,7 +95,6 @@ impl Plugin for Whisper {
             ..Default::default()
         }
     }
-
 
     fn process_events(&mut self, events: &Events) {
         for event in events.events() {
@@ -133,8 +137,6 @@ impl Plugin for Whisper {
 
         let mut output_sample;
         for sample_idx in 0..samples {
-
-
             // Update the alpha of each note...
             for note in self.notes.iter_mut() {
                 if !note.is_released && note.alpha < 1.0 {
